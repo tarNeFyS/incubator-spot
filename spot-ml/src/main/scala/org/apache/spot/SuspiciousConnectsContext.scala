@@ -4,7 +4,7 @@ import org.apache.spark.sql.SQLContext
 import org.apache.spark.{SparkConf, SparkContext}
 
 /**
-  * Created by david on 07/06/17.
+  * Context containing the Spark related context
   */
 object SuspiciousConnectsContext {
 
@@ -14,14 +14,5 @@ object SuspiciousConnectsContext {
   val sparkContext = new SparkContext(sparkConfig)
   val sqlContext = new SQLContext(sparkContext)
 
-  def getSparkContext: SparkContext = {
-    sparkContext
-  }
-
-  def getSQLContext: SQLContext = {
-    sqlContext
-  }
-
-
-
+  def SuspiciousConnectsContext()
 }

@@ -20,9 +20,10 @@ package org.apache.spot.proxy
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql._
-import org.apache.spark.sql.types.{StructType, StructField, StringType}
-import scala.io.Source
+import org.apache.spark.sql.types.{StringType, StructField, StructType}
+import org.apache.spot.SuspiciousConnectsContext
 
+import scala.io.Source
 import org.apache.spot.proxy.ProxySchema._
 
 
@@ -31,15 +32,11 @@ object ProxyFeedback {
   /**
     * Load the feedback file for proxy data.
  *
-    * @param sc Spark context.
-    * @param sqlContext Spark SQL context.
     * @param feedbackFile Local machine path to the proxy feedback file.
     * @param duplicationFactor Number of words to create per flagged feedback entry.
     * @return DataFrame of the feedback events.
     */
-  def loadFeedbackDF(sc: SparkContext,
-                     sqlContext: SQLContext,
-                     feedbackFile: String,
+  def loadFeedbackDF(feedbackFile: String,
                      duplicationFactor: Int): DataFrame = {
 
 
@@ -53,6 +50,8 @@ object ProxyFeedback {
         StructField(ResponseContentType, StringType, nullable= true),
         StructField(RespCode, StringType, nullable= true),
         StructField(FullURI, StringType, nullable= true)))
+
+    val context = SuspiciousConnectsContext
 
     if (new java.io.File(feedbackFile).exists) {
 
@@ -69,9 +68,9 @@ object ProxyFeedback {
       val fullURISeverityIndex = 22
 
       val lines = Source.fromFile(feedbackFile).getLines().toArray.drop(1)
-      val feedback: RDD[String] = sc.parallelize(lines)
+      val feedback: RDD[String] = context.sparkContext.parallelize(lines)
 
-      sqlContext.createDataFrame(feedback.map(_.split("\t"))
+      context.sqlContext.createDataFrame(feedback.map(_.split("\t"))
         .filter(row => row(fullURISeverityIndex).trim.toInt == 3)
         .map(row => Row.fromSeq(List(row(dateIndex),
           row(timeIndex),
@@ -85,7 +84,7 @@ object ProxyFeedback {
         .flatMap(row => List.fill(duplicationFactor)(row)), feedbackSchema)
         .select(Date, Time, ClientIP, Host, ReqMethod, UserAgent, ResponseContentType, RespCode, FullURI)
     } else {
-      sqlContext.createDataFrame(sc.emptyRDD[Row], feedbackSchema)
+      context.sqlContext.createDataFrame(context.sparkContext.emptyRDD[Row], feedbackSchema)
     }
   }
 }

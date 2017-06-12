@@ -18,14 +18,13 @@
 package org.apache.spot.lda
 
 import org.apache.log4j.Logger
-import org.apache.spark.SparkContext
 import org.apache.spark.mllib.clustering.{DistributedLDAModel, EMLDAOptimizer, LDA}
 import org.apache.spark.mllib.linalg.{Matrix, Vector, Vectors}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.{DataFrame, Row, SQLContext}
-
 import SpotLDAWrapperSchema._
+import org.apache.spot.SuspiciousConnectsContext
 
 import scala.collection.immutable.Map
 
@@ -45,9 +44,7 @@ object SpotLDAWrapper {
   case class SpotLDAOutput(docToTopicMix: DataFrame, wordResults: Map[String, Array[Double]])
 
 
-  def runLDA(sparkContext: SparkContext,
-             sqlContext: SQLContext,
-             docWordCount: RDD[SpotLDAInput],
+  def runLDA(docWordCount: RDD[SpotLDAInput],
              topicCount: Int,
              logger: Logger,
              ldaSeed: Option[Long],
@@ -55,7 +52,9 @@ object SpotLDAWrapper {
              ldaBeta: Double,
              maxIterations: Int): SpotLDAOutput = {
 
-    import sqlContext.implicits._
+    val context = SuspiciousConnectsContext
+
+    import context.sqlContext.implicits._
 
     val docWordCountCache = docWordCount.cache()
 
@@ -82,8 +81,7 @@ object SpotLDAWrapper {
     val ldaCorpus: RDD[(Long, Vector)] =
       formatSparkLDAInput(docWordCountCache,
         documentDictionary,
-        wordDictionary,
-        sqlContext)
+        wordDictionary)
 
     docWordCountCache.unpersist()
 
@@ -123,7 +121,7 @@ object SpotLDAWrapper {
 
     //Create doc results from vector: convert docID back to string, convert vector of probabilities to array
     val docToTopicMixDF =
-      formatSparkLDADocTopicOutput(docTopicDist, documentDictionary, sqlContext)
+      formatSparkLDADocTopicOutput(docTopicDist, documentDictionary)
 
     documentDictionary.unpersist()
 
@@ -138,10 +136,10 @@ object SpotLDAWrapper {
 
   def formatSparkLDAInput(docWordCount: RDD[SpotLDAInput],
                           documentDictionary: DataFrame,
-                          wordDictionary: Map[String, Int],
-                          sqlContext: SQLContext): RDD[(Long, Vector)] = {
+                          wordDictionary: Map[String, Int]): RDD[(Long, Vector)] = {
 
-    import sqlContext.implicits._
+    val context = SuspiciousConnectsContext
+    import context.sqlContext.implicits._
 
     val getWordId = {
       udf((word: String) => (wordDictionary(word)))
@@ -186,9 +184,10 @@ object SpotLDAWrapper {
     wordProbs.zipWithIndex.map({ case (topicProbs, wordInd) => (wordMap(wordInd), topicProbs) }).toMap
   }
 
-  def formatSparkLDADocTopicOutput(docTopDist: RDD[(Long, Vector)], documentDictionary: DataFrame, sqlContext: SQLContext):
+  def formatSparkLDADocTopicOutput(docTopDist: RDD[(Long, Vector)], documentDictionary: DataFrame):
   DataFrame = {
-    import sqlContext.implicits._
+    val context = SuspiciousConnectsContext
+    import context.sqlContext.implicits._
 
     val topicDistributionToArray = udf((topicDistribution: Vector) => topicDistribution.toArray)
     val documentToTopicDistributionDF = docTopDist.toDF(DocumentNumber, TopicProbabilityMix)

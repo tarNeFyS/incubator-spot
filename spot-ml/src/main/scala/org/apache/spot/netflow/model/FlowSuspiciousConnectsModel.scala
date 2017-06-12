@@ -24,6 +24,7 @@ import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.{DataFrame, Row, SQLContext}
 import org.apache.spot.SuspiciousConnectsArgumentParser.SuspiciousConnectsConfig
+import org.apache.spot.SuspiciousConnectsContext
 import org.apache.spot.lda.SpotLDAWrapper
 import org.apache.spot.lda.SpotLDAWrapper.{SpotLDAInput, SpotLDAOutput}
 import org.apache.spot.lda.SpotLDAWrapperSchema._
@@ -65,9 +66,10 @@ class FlowSuspiciousConnectsModel(topicCount: Int,
                                   ibytCuts: Array[Double],
                                   ipktCuts: Array[Double]) {
 
-  def score(sc: SparkContext, sqlContext: SQLContext, flowRecords: DataFrame): DataFrame = {
+  def score(flowRecords: DataFrame): DataFrame = {
+    val context = SuspiciousConnectsContext
 
-    val wordToPerTopicProbBC = sc.broadcast(wordToPerTopicProb)
+    val wordToPerTopicProbBC = context.sparkContext.broadcast(wordToPerTopicProb)
 
 
     /** A left outer join (below) takes rows from the left DF for which the join expression is not
@@ -144,9 +146,9 @@ object FlowSuspiciousConnectsModel {
 
   val ModelColumns = ModelSchema.fieldNames.toList.map(col)
 
-  def trainNewModel(sparkContext: SparkContext,
-                    sqlContext: SQLContext,
-                    logger: Logger,
+  val context = SuspiciousConnectsContext
+
+  def trainNewModel(logger: Logger,
                     config: SuspiciousConnectsConfig,
                     inputRecords: DataFrame,
                     topicCount: Int): FlowSuspiciousConnectsModel = {
@@ -156,9 +158,7 @@ object FlowSuspiciousConnectsModel {
     val selectedRecords = inputRecords.select(ModelColumns: _*)
 
 
-    val totalRecords = selectedRecords.unionAll(FlowFeedback.loadFeedbackDF(sparkContext,
-      sqlContext,
-      config.feedbackFile,
+    val totalRecords = selectedRecords.unionAll(FlowFeedback.loadFeedbackDF(config.feedbackFile,
       config.duplicationFactor))
 
     // create quantile cut-offs
@@ -240,14 +240,12 @@ object FlowSuspiciousConnectsModel {
       .reduceByKey(_ + _)
 
     val ipWordCounts =
-      sparkContext.union(srcWordCounts, dstWordCounts)
+      context.sparkContext.union(srcWordCounts, dstWordCounts)
         .reduceByKey(_ + _)
         .map({ case ((ip, word), count) => SpotLDAInput(ip, word, count) })
 
 
-    val SpotLDAOutput(ipToTopicMix, wordToPerTopicProb) = SpotLDAWrapper.runLDA(sparkContext,
-      sqlContext,
-      ipWordCounts,
+    val SpotLDAOutput(ipToTopicMix, wordToPerTopicProb) = SpotLDAWrapper.runLDA(ipWordCounts,
       config.topicCount,
       logger,
       config.ldaPRGSeed,

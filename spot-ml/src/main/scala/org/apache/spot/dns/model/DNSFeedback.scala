@@ -20,6 +20,7 @@ package org.apache.spot.dns.model
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{DataFrame, Row, SQLContext}
+import org.apache.spot.SuspiciousConnectsContext
 import org.apache.spot.dns.model.DNSSuspiciousConnectsModel.{ModelSchema, modelColumns}
 
 import scala.io.Source
@@ -32,18 +33,15 @@ object DNSFeedback {
 
   /**
     * Load the feedback file for DNS data.
- *
-    * @param sc Spark context.
-    * @param sqlContext Spark SQL context.
+    *
     * @param feedbackFile Local machine path to the DNS feedback file.
     * @param duplicationFactor Number of words to create per flagged feedback entry.
     * @return DataFrame of the feedback events.
     */
-  def loadFeedbackDF(sc: SparkContext,
-                     sqlContext: SQLContext,
-                     feedbackFile: String,
+  def loadFeedbackDF(feedbackFile: String,
                      duplicationFactor: Int): DataFrame = {
 
+    val context = SuspiciousConnectsContext
 
     if (new java.io.File(feedbackFile).exists) {
 
@@ -52,7 +50,7 @@ object DNSFeedback {
       */
 
       val lines = Source.fromFile(feedbackFile).getLines().toArray.drop(1)
-      val feedback: RDD[String] = sc.parallelize(lines)
+      val feedback: RDD[String] = context.sparkContext.parallelize(lines)
 
       /*
       The columns and their entries are as follows:
@@ -85,7 +83,7 @@ object DNSFeedback {
       val DnsQryRcodeIndex = 6
       val DnsSevIndex = 12
 
-      sqlContext.createDataFrame(feedback.map(_.split("\t"))
+      context.sqlContext.createDataFrame(feedback.map(_.split("\t"))
         .filter(row => row(DnsSevIndex).trim.toInt == 3)
         .map(row => Row.fromSeq(Seq(row(FrameTimeIndex),
           row(UnixTimeStampIndex).toLong,
@@ -98,7 +96,7 @@ object DNSFeedback {
         .flatMap(row => List.fill(duplicationFactor)(row)), ModelSchema)
         .select(modelColumns:_*)
     } else {
-      sqlContext.createDataFrame(sc.emptyRDD[Row], ModelSchema)
+      context.sqlContext.createDataFrame(context.sparkContext.emptyRDD[Row], ModelSchema)
     }
   }
 }

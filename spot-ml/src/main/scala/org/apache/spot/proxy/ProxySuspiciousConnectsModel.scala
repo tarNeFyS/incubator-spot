@@ -24,7 +24,7 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.{DataFrame, Row, SQLContext}
 import org.apache.spot.SuspiciousConnectsArgumentParser.SuspiciousConnectsConfig
-import org.apache.spot.SuspiciousConnectsScoreFunction
+import org.apache.spot.{SuspiciousConnectsContext, SuspiciousConnectsScoreFunction}
 import org.apache.spot.lda.SpotLDAWrapper
 import org.apache.spot.lda.SpotLDAWrapper.{SpotLDAInput, SpotLDAOutput}
 import org.apache.spot.proxy.ProxySchema._
@@ -45,19 +45,19 @@ class ProxySuspiciousConnectsModel(topicCount: Int,
   /**
     * Calculate suspicious connection scores for an incoming dataframe using this proxy suspicious connects model.
     *
-    * @param sc        Spark context.
     * @param dataFrame Dataframe with columns Host, Time, ReqMethod, FullURI, ResponseContentType, UserAgent, RespCode
     *                  (as defined in ProxySchema object).
     * @return Dataframe with Score column added.
     */
-  def score(sc: SparkContext, dataFrame: DataFrame): DataFrame = {
+  def score(dataFrame: DataFrame): DataFrame = {
+    val context = SuspiciousConnectsContext
 
-    val topDomains: Broadcast[Set[String]] = sc.broadcast(TopDomains.TopDomains)
+    val topDomains: Broadcast[Set[String]] = context.sparkContext.broadcast(TopDomains.TopDomains)
 
     val agentToCount: Map[String, Long] =
       dataFrame.select(UserAgent).rdd.map({ case Row(ua: String) => (ua, 1L) }).reduceByKey(_ + _).collect().toMap
 
-    val agentToCountBC = sc.broadcast(agentToCount)
+    val agentToCountBC = context.sparkContext.broadcast(agentToCount)
 
     val udfWordCreation =
       ProxyWordCreation.udfWordCreation(topDomains, agentToCountBC)
@@ -71,8 +71,8 @@ class ProxySuspiciousConnectsModel(topicCount: Int,
         dataFrame(UserAgent),
         dataFrame(RespCode)))
 
-    val ipToTopicMixBC = sc.broadcast(ipToTopicMIx)
-    val wordToPerTopicProbBC = sc.broadcast(wordToPerTopicProb)
+    val ipToTopicMixBC = context.sparkContext.broadcast(ipToTopicMIx)
+    val wordToPerTopicProbBC = context.sparkContext.broadcast(wordToPerTopicProb)
 
 
     val scoreFunction = new SuspiciousConnectsScoreFunction(topicCount, ipToTopicMixBC, wordToPerTopicProbBC)
@@ -102,26 +102,23 @@ object ProxySuspiciousConnectsModel {
     * Trains the model from the incoming DataFrame using the specified number of topics
     * for clustering in the topic model.
     *
-    * @param sparkContext Spark context.
-    * @param sqlContext   SQL context.
     * @param logger       Logge object.
     * @param config       SuspiciousConnetsArgumnetParser.Config object containg CLI arguments.
     * @param inputRecords Dataframe for training data, with columns Host, Time, ReqMethod, FullURI, ResponseContentType,
     *                     UserAgent, RespCode (as defined in ProxySchema object).
     * @return ProxySuspiciousConnectsModel
     */
-  def trainNewModel(sparkContext: SparkContext,
-                    sqlContext: SQLContext,
-                    logger: Logger,
+  def trainNewModel(logger: Logger,
                     config: SuspiciousConnectsConfig,
                     inputRecords: DataFrame): ProxySuspiciousConnectsModel = {
 
     logger.info("training new proxy suspcious connects model")
 
+    val context = SuspiciousConnectsContext
 
     val selectedRecords =
       inputRecords.select(Date, Time, ClientIP, Host, ReqMethod, UserAgent, ResponseContentType, RespCode, FullURI)
-      .unionAll(ProxyFeedback.loadFeedbackDF(sparkContext, sqlContext, config.feedbackFile, config.duplicationFactor))
+      .unionAll(ProxyFeedback.loadFeedbackDF(config.feedbackFile, config.duplicationFactor))
 
 
 
@@ -132,18 +129,16 @@ object ProxySuspiciousConnectsModel {
         .reduceByKey(_ + _).collect()
         .toMap
 
-    val agentToCountBC = sparkContext.broadcast(agentToCount)
+    val agentToCountBC = context.sparkContext.broadcast(agentToCount)
 
 
 
     val docWordCount: RDD[SpotLDAInput] =
-      getIPWordCounts(sparkContext, sqlContext, logger, selectedRecords, config.feedbackFile, config.duplicationFactor,
+      getIPWordCounts(logger, selectedRecords, config.feedbackFile, config.duplicationFactor,
         agentToCount)
 
 
-    val SpotLDAOutput(ipToTopicMixDF, wordResults) = SpotLDAWrapper.runLDA(sparkContext,
-      sqlContext,
-      docWordCount,
+    val SpotLDAOutput(ipToTopicMixDF, wordResults) = SpotLDAWrapper.runLDA(docWordCount,
       config.topicCount,
       logger,
       config.ldaPRGSeed,
@@ -174,9 +169,7 @@ object ProxySuspiciousConnectsModel {
     *
     * @return RDD of [[SpotLDAInput]] objects containing the aggregated IP-word counts.
     */
-  def getIPWordCounts(sc: SparkContext,
-                      sqlContext: SQLContext,
-                      logger: Logger,
+  def getIPWordCounts(logger: Logger,
                       inputRecords: DataFrame,
                       feedbackFile: String,
                       duplicationFactor: Int,
@@ -186,19 +179,19 @@ object ProxySuspiciousConnectsModel {
     logger.info("Read source data")
     val selectedRecords = inputRecords.select(Date, Time, ClientIP, Host, ReqMethod, UserAgent, ResponseContentType, RespCode, FullURI)
 
-    val wc = ipWordCountFromDF(sc, selectedRecords, agentToCount)
+    val wc = ipWordCountFromDF(selectedRecords, agentToCount)
     logger.info("proxy pre LDA completed")
 
     wc
   }
 
-  def ipWordCountFromDF(sc: SparkContext,
-                        dataFrame: DataFrame,
+  def ipWordCountFromDF(dataFrame: DataFrame,
                         agentToCount: Map[String, Long]): RDD[SpotLDAInput] = {
+    val context = SuspiciousConnectsContext
 
-    val topDomains: Broadcast[Set[String]] = sc.broadcast(TopDomains.TopDomains)
+    val topDomains: Broadcast[Set[String]] = context.sparkContext.broadcast(TopDomains.TopDomains)
 
-    val agentToCountBC = sc.broadcast(agentToCount)
+    val agentToCountBC = context.sparkContext.broadcast(agentToCount)
     val udfWordCreation = ProxyWordCreation.udfWordCreation(topDomains, agentToCountBC)
 
     val ipWord = dataFrame.withColumn(Word,

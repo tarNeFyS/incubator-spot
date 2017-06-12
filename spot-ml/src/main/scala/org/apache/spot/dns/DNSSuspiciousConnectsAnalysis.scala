@@ -43,19 +43,16 @@ object DNSSuspiciousConnectsAnalysis {
     * Saves the most suspicious connections to a CSV file on HDFS.
     *
     * @param config Object encapsulating runtime parameters and CLI options.
-    * @param sparkContext
-    * @param sqlContext
     * @param logger
     */
-  def run(config: SuspiciousConnectsConfig, sparkContext: SparkContext, sqlContext: SQLContext, logger: Logger,
-          inputDNSRecords: DataFrame) = {
+  def run(config: SuspiciousConnectsConfig, logger: Logger, inputDNSRecords: DataFrame) = {
 
 
     logger.info("Starting DNS suspicious connects analysis.")
 
     val cleanDNSRecords = filterAndSelectCleanDNSRecords(inputDNSRecords)
 
-    val scoredDNSRecords = scoreDNSRecords(cleanDNSRecords, config, sparkContext, sqlContext, logger)
+    val scoredDNSRecords = scoreDNSRecords(cleanDNSRecords, config, logger)
 
     val filteredDNSRecords = filterScoredDNSRecords(scoredDNSRecords, config.threshold)
 
@@ -89,17 +86,14 @@ object DNSSuspiciousConnectsAnalysis {
     * @return
     */
 
-  def scoreDNSRecords(data: DataFrame, config: SuspiciousConnectsConfig,
-                      sparkContext: SparkContext,
-                      sqlContext: SQLContext,
-                      logger: Logger) : DataFrame = {
+  def scoreDNSRecords(data: DataFrame, config: SuspiciousConnectsConfig, logger: Logger) : DataFrame = {
 
     logger.info("Fitting probabilistic model to data")
     val model =
-      DNSSuspiciousConnectsModel.trainNewModel(sparkContext, sqlContext, logger, config, data, config.topicCount)
+      DNSSuspiciousConnectsModel.trainNewModel(logger, config, data, config.topicCount)
 
     logger.info("Identifying outliers")
-    model.score(sparkContext, sqlContext, data, config.userDomain)
+    model.score(data, config.userDomain)
   }
 
 

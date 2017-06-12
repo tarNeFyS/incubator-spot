@@ -18,8 +18,6 @@
 package org.apache.spot
 
 import org.apache.log4j.{Level, LogManager, Logger}
-import org.apache.spark.sql.SQLContext
-import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spot.SuspiciousConnectsArgumentParser.SuspiciousConnectsConfig
 import org.apache.spot.dns.DNSSuspiciousConnectsAnalysis
 import org.apache.spot.netflow.FlowSuspiciousConnectsAnalysis
@@ -56,12 +54,15 @@ object SuspiciousConnects {
         Logger.getLogger("akka").setLevel(Level.OFF)
 
         val analysis = config.analysis
-        val sparkConfig = new SparkConf().setAppName("Spot ML:  " + analysis + " suspicious connects analysis")
+        /*val sparkConfig = new SparkConf().setAppName("Spot ML:  " + analysis + " suspicious connects analysis")
         val sparkContext = new SparkContext(sparkConfig)
         val sqlContext = new SQLContext(sparkContext)
+        */
 
-        val inputDataFrame = InputOutputDataHandler.getInputDataFrame(sqlContext, config.inputPath, logger)
-          .getOrElse(sqlContext.emptyDataFrame)
+        val context = SuspiciousConnectsContext
+
+        val inputDataFrame = InputOutputDataHandler.getInputDataFrame(context.sqlContext, config.inputPath, logger)
+          .getOrElse(context.sqlContext.emptyDataFrame)
         if(inputDataFrame.rdd.isEmpty()) {
           logger.error("Couldn't read data from location " + config.inputPath +", please verify it's a valid location and that " +
             s"contains parquet files with a given schema and try again.")
@@ -69,15 +70,15 @@ object SuspiciousConnects {
         }
 
         analysis match {
-          case "flow" => FlowSuspiciousConnectsAnalysis.run(config, sparkContext, sqlContext, logger, inputDataFrame)
-          case "dns" => DNSSuspiciousConnectsAnalysis.run(config, sparkContext, sqlContext, logger, inputDataFrame)
-          case "proxy" => ProxySuspiciousConnectsAnalysis.run(config, sparkContext, sqlContext, logger, inputDataFrame)
+          case "flow" => FlowSuspiciousConnectsAnalysis.run(config, logger, inputDataFrame)
+          case "dns" => DNSSuspiciousConnectsAnalysis.run(config, logger, inputDataFrame)
+          case "proxy" => ProxySuspiciousConnectsAnalysis.run(config, logger, inputDataFrame)
           case _ => logger.error("Unsupported (or misspelled) analysis: " + analysis)
         }
 
-        InputOutputDataHandler.mergeResultsFiles(sparkContext, config.hdfsScoredConnect, analysis, logger)
+        InputOutputDataHandler.mergeResultsFiles(context.sparkContext, config.hdfsScoredConnect, analysis, logger)
 
-        sparkContext.stop()
+        context.sparkContext.stop()
 
       case None => logger.error("Error parsing arguments.")
     }

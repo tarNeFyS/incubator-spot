@@ -36,14 +36,14 @@ import org.apache.spot.utilities.data.validation.{InvalidDataHandler => dataVali
 object FlowSuspiciousConnectsAnalysis {
 
 
-  def run(config: SuspiciousConnectsConfig, sparkContext: SparkContext, sqlContext: SQLContext, logger: Logger,
+  def run(config: SuspiciousConnectsConfig, logger: Logger,
           inputFlowRecords: DataFrame) = {
 
     logger.info("Starting flow suspicious connects analysis.")
 
     val cleanFlowRecords = filterAndSelectCleanFlowRecords(inputFlowRecords)
 
-    val scoredFlowRecords = detectFlowAnomalies(cleanFlowRecords, config, sparkContext, sqlContext, logger)
+    val scoredFlowRecords = detectFlowAnomalies(cleanFlowRecords, config, logger)
 
     val filteredFlowRecords = filterScoredFlowRecords(scoredFlowRecords, config.threshold)
 
@@ -75,17 +75,15 @@ object FlowSuspiciousConnectsAnalysis {
     */
   def detectFlowAnomalies(data: DataFrame,
                           config: SuspiciousConnectsConfig,
-                          sparkContext: SparkContext,
-                          sqlContext: SQLContext,
                           logger: Logger): DataFrame = {
 
 
     logger.info("Fitting probabilistic model to data")
     val model =
-      FlowSuspiciousConnectsModel.trainNewModel(sparkContext, sqlContext, logger, config, data, config.topicCount)
+      FlowSuspiciousConnectsModel.trainNewModel(logger, config, data, config.topicCount)
 
     logger.info("Identifying outliers")
-    model.score(sparkContext, sqlContext, data)
+    model.score(data)
   }
 
   /**
