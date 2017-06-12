@@ -75,8 +75,6 @@ class FlowSuspiciousConnectsAnalysisTest extends TestingSparkContextFlatSpec wit
 
     val scoredData: DataFrame = FlowSuspiciousConnectsAnalysis.detectFlowAnomalies(data,
       testConfig,
-      sparkContext,
-      sqlContext,
       logger)
 
 
