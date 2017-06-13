@@ -14,5 +14,4 @@ object SuspiciousConnectsContext {
   val sparkContext = new SparkContext(sparkConfig)
   val sqlContext = new SQLContext(sparkContext)
 
-  def SuspiciousConnectsContext()
 }
